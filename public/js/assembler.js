@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /**
  * Loads GLB parts once, caches parsed scenes & geometric attachment metrics,
@@ -8,6 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 export class PartAssetCache {
   constructor() {
     this.loader = new GLTFLoader();
+    this.loader.setMeshoptDecoder(MeshoptDecoder);
     this.cache = new Map(); // partUrl -> Promise<PartRecord>
   }
 

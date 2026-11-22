@@ -2,6 +2,7 @@ import { PartAssetCache, assembleCharacter, prepareSinglePart, normalizeTweak } 
 import { StudioViewer, CardRenderer } from './viewer.js';
 
 const PAGE_SIZE = 24;
+const LOCAL_CONFIG_KEY = 'character-foundry-config-v1';
 
 const SLOT_LABELS = {
   heads: 'Head',
@@ -16,6 +17,8 @@ const SLOT_TO_FIT = {
 };
 
 const state = {
+  staticMode: false,
+  localSessionParts: { heads: [], bodies: [], legs: [] },
   parts: { heads: [], bodies: [], legs: [] },
   config: { partTweaks: {}, favorites: [] },
   combos: [],
@@ -876,7 +879,49 @@ function renderPartsGallery() {
   queueThumbnailRender();
 }
 
+function prettifyClientName(filename) {
+  let base = filename.replace(/\.(glb|gltf)$/i, '');
+  base = base
+    .replace(/^Meshy_AI_/i, '')
+    .replace(/_(image-to-3d|text-to-3d)(-texture)?$/i, '')
+    .replace(/_\d{8,14}$/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!base) base = filename.replace(/\.(glb|gltf)$/i, '');
+  return base.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function loadLocalConfig(serverConfig) {
+  const base = {
+    partTweaks: { ...(serverConfig?.partTweaks || {}) },
+    favorites: Array.isArray(serverConfig?.favorites) ? [...serverConfig.favorites] : [],
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCAL_CONFIG_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      if (saved.partTweaks && typeof saved.partTweaks === 'object') {
+        base.partTweaks = { ...base.partTweaks, ...saved.partTweaks };
+      }
+      if (Array.isArray(saved.favorites)) {
+        base.favorites = saved.favorites;
+      }
+    }
+  } catch {
+    // Ignore storage access issues
+  }
+  return base;
+}
+
 async function saveConfigToServer() {
+  if (state.staticMode) {
+    try {
+      localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(state.config));
+    } catch {
+      // Ignore storage quota errors
+    }
+    return;
+  }
   try {
     await fetch('/api/config', {
       method: 'POST',
@@ -908,9 +953,14 @@ function applyCatalog(payload, { isLiveUpdate = false, focusPart = null } = {}) 
   const prevCount = state.combos.length;
   const prevIds = new Set(getAllParts().map((p) => p.id));
 
-  state.parts = payload.parts || { heads: [], bodies: [], legs: [] };
+  const incoming = payload.parts || { heads: [], bodies: [], legs: [] };
+  state.parts = {
+    heads: [...(incoming.heads || []), ...state.localSessionParts.heads],
+    bodies: [...(incoming.bodies || []), ...state.localSessionParts.bodies],
+    legs: [...(incoming.legs || []), ...state.localSessionParts.legs],
+  };
   if (payload.config) {
-    state.config = payload.config;
+    state.config = state.staticMode ? loadLocalConfig(payload.config) : payload.config;
   }
 
   const validUrls = new Set(getAllParts().map((p) => p.url));
@@ -968,12 +1018,30 @@ function applyCatalog(payload, { isLiveUpdate = false, focusPart = null } = {}) 
 }
 
 async function fetchCatalog() {
-  const res = await fetch('/api/parts', { cache: 'no-store' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetch('/api/parts', { cache: 'no-store' });
+    const ct = res.headers.get('content-type') || '';
+    if (res.ok && ct.includes('application/json')) {
+      state.staticMode = false;
+      return res.json();
+    }
+  } catch {
+    // Fall through to static manifest
+  }
+
+  const staticRes = await fetch('/parts-manifest.json', { cache: 'no-store' });
+  if (!staticRes.ok) throw new Error(`HTTP ${staticRes.status}`);
+  state.staticMode = true;
+  return staticRes.json();
 }
 
 function connectLiveEvents() {
+  if (state.staticMode) {
+    els.watchStatus.classList.remove('disconnected');
+    els.watchLabel.textContent = 'Hosted gallery';
+    els.refreshPartsBtn.hidden = true;
+    return;
+  }
   const es = new EventSource('/api/events');
   es.addEventListener('open', () => {
     els.watchStatus.classList.remove('disconnected');
@@ -1235,6 +1303,33 @@ function bindEvents() {
     if (!selectedFile) return;
 
     const slot = els.uploadForm.querySelector('input[name="uploadSlot"]:checked')?.value || 'heads';
+
+    // In hosted static mode (Netlify), load the dropped .glb directly in browser memory!
+    if (state.staticMode) {
+      const blobUrl = URL.createObjectURL(selectedFile);
+      const localPart = {
+        id: `${slot}/local-${Date.now()}-${selectedFile.name}`,
+        slot,
+        filename: selectedFile.name,
+        name: `${prettifyClientName(selectedFile.name)} (Local)`,
+        size: selectedFile.size,
+        mtimeMs: Date.now(),
+        url: blobUrl,
+      };
+      state.localSessionParts[slot].push(localPart);
+      els.uploadDialog.close();
+
+      // Re-apply current base parts + new local session part
+      const baseParts = {
+        heads: state.parts.heads.filter((p) => !p.url.startsWith('blob:')),
+        bodies: state.parts.bodies.filter((p) => !p.url.startsWith('blob:')),
+        legs: state.parts.legs.filter((p) => !p.url.startsWith('blob:')),
+      };
+      applyCatalog({ parts: baseParts }, { focusPart: localPart });
+      showToast(`Previewing "${localPart.name}" in your browser!`);
+      return;
+    }
+
     const url = `/api/upload?slot=${encodeURIComponent(slot)}&filename=${encodeURIComponent(selectedFile.name)}`;
 
     els.submitUploadBtn.disabled = true;
@@ -1302,13 +1397,13 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
-  connectLiveEvents();
   try {
     const data = await fetchCatalog();
+    connectLiveEvents();
     applyCatalog(data);
   } catch (err) {
-    els.loadingTitle.textContent = 'Could not reach gallery server';
-    els.loadingDetail.textContent = err?.message || 'Make sure `npm start` is running.';
+    els.loadingTitle.textContent = 'Could not load gallery catalog';
+    els.loadingDetail.textContent = err?.message || 'Make sure the server or manifest is available.';
     console.error(err);
   }
 }
