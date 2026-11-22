@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Character Foundry — 3D Character Gallery</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28" width="24" height="24" fill="none">
+            <rect x="7" y="2.5" width="14" height="8.5" rx="4.25" stroke="currentColor" stroke-width="2.2"/>
+            <rect x="4.5" y="12.5" width="19" height="7.5" rx="3" stroke="currentColor" stroke-width="2.2"/>
+            <path d="M9.5 20v5.5M18.5 20v5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <div class="brand-copy">
+          <h1>Character Foundry</h1>
+          <p class="subtitle">Full 3D characters assembled live from <code>Heads/</code>, <code>Bodies/</code> &amp; <code>Legs/</code></p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <span class="watch-pill" id="watchStatus" title="Automatically detects new .glb files dropped into Heads, Bodies, or Legs">
+          <span class="watch-dot" aria-hidden="true"></span>
+          <span id="watchLabel">Live folder sync</span>
+        </span>
+        <span class="count-pill" id="catalogSummary">Loading parts…</span>
+        <button type="button" class="btn btn-primary" id="openUploadBtn">+ Add Part (.glb)</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <!-- Hero Interactive 3D Studio -->
+    <section class="studio-section" aria-labelledby="studioHeading">
+      <div class="stage-column">
+        <div class="stage-frame" id="stageFrame" data-backdrop="studio">
+          <canvas id="studioCanvas" aria-label="Interactive 3D character viewer. Drag to rotate, scroll to zoom."></canvas>
+
+          <div class="stage-top-bar">
+            <div class="stage-badge" id="activeCharacterBadge">
+              <span class="stage-badge-dot" aria-hidden="true"></span>
+              <span id="activeCharacterTitle">Assembling character…</span>
+            </div>
+            <div class="stage-top-controls">
+              <button type="button" class="icon-pill" id="backToFullBtn" hidden>
+                ← Full Character
+              </button>
+              <button type="button" class="icon-pill" id="favoriteActiveBtn" aria-pressed="false" title="Favorite this full character">
+                <span aria-hidden="true">☆</span> Favorite
+              </button>
+              <button type="button" class="icon-pill" id="snapshotBtn" title="Download PNG snapshot">
+                Snapshot
+              </button>
+            </div>
+          </div>
+
+          <div class="stage-loading" id="stageLoading" role="status" aria-live="polite">
+            <div class="loading-card">
+              <p class="loading-title" id="loadingTitle">Loading 3D character parts…</p>
+              <progress id="loadingProgress" max="100" value="0">0%</progress>
+              <p class="loading-detail" id="loadingDetail">Reading GLB meshes &amp; textures</p>
+            </div>
+          </div>
+
+          <div class="stage-controls" role="toolbar" aria-label="3D viewer controls">
+            <div class="control-group">
+              <button type="button" class="pill-btn" id="autoRotateBtn" aria-pressed="true">Auto-Spin</button>
+              <button type="button" class="pill-btn" id="explodeBtn" aria-pressed="false">Explode Parts</button>
+              <button type="button" class="pill-btn" id="resetViewBtn">Reset View</button>
+            </div>
+
+            <div class="control-group" aria-label="Camera angles">
+              <button type="button" class="pill-btn angle-btn" data-angle="front">Front</button>
+              <button type="button" class="pill-btn angle-btn" data-angle="three-quarter">3/4</button>
+              <button type="button" class="pill-btn angle-btn" data-angle="side">Side</button>
+              <button type="button" class="pill-btn angle-btn" data-angle="back">Back</button>
+            </div>
+
+            <div class="control-group" aria-label="Stage backdrop">
+              <button type="button" class="pill-btn backdrop-btn" data-backdrop="studio" aria-pressed="true">Dark</button>
+              <button type="button" class="pill-btn backdrop-btn" data-backdrop="gallery" aria-pressed="false">Warm</button>
+              <button type="button" class="pill-btn backdrop-btn" data-backdrop="bright" aria-pressed="false">Light</button>
+            </div>
+          </div>
+
+          <p class="stage-hint" aria-hidden="true">Drag to rotate · Scroll to zoom · Right-drag to pan</p>
+        </div>
+      </div>
+
+      <!-- Builder & Fit Inspector -->
+      <aside class="inspector-column" aria-labelledby="studioHeading">
+        <div class="inspector-header">
+          <div>
+            <h2 id="studioHeading">Active Character</h2>
+            <p class="muted" id="activeComboMeta">1 of 1 assembled combinations</p>
+          </div>
+          <div class="inspector-nav">
+            <button type="button" class="btn btn-subtle" id="prevCharBtn" title="Previous full character">Prev</button>
+            <button type="button" class="btn btn-subtle" id="shuffleCharBtn" title="Random character combination">Shuffle</button>
+            <button type="button" class="btn btn-subtle" id="nextCharBtn" title="Next full character">Next</button>
+          </div>
+        </div>
+
+        <div class="slot-pickers">
+          <div class="slot-group" data-slot="heads">
+            <div class="slot-header">
+              <label for="selectHead">Head</label>
+              <span class="slot-count" id="countHeads">0</span>
+            </div>
+            <select id="selectHead" class="slot-select"></select>
+          </div>
+
+          <div class="slot-group" data-slot="bodies">
+            <div class="slot-header">
+              <label for="selectBody">Body</label>
+              <span class="slot-count" id="countBodies">0</span>
+            </div>
+            <select id="selectBody" class="slot-select"></select>
+          </div>
+
+          <div class="slot-group" data-slot="legs">
+            <div class="slot-header">
+              <label for="selectLegs">Legs</label>
+              <span class="slot-count" id="countLegs">0</span>
+            </div>
+            <select id="selectLegs" class="slot-select"></select>
+          </div>
+        </div>
+
+        <details class="fit-panel" id="fitPanel">
+          <summary>Fine-Tune Part Fit &amp; Alignment</summary>
+          <div class="fit-body">
+            <div class="fit-slot-tabs" role="tablist" aria-label="Part slot to adjust">
+              <button type="button" role="tab" class="tab-btn" data-fit-slot="head" aria-selected="true">Head</button>
+              <button type="button" role="tab" class="tab-btn" data-fit-slot="body" aria-selected="false">Body</button>
+              <button type="button" role="tab" class="tab-btn" data-fit-slot="legs" aria-selected="false">Legs</button>
+            </div>
+            <p class="fit-part-name" id="fitPartName">—</p>
+
+            <div class="slider-row">
+              <div class="slider-label">
+                <label for="tweakScale">Scale</label>
+                <output id="tweakScaleOut" for="tweakScale">1.00×</output>
+              </div>
+              <input type="range" id="tweakScale" min="0.5" max="1.75" step="0.01" value="1">
+            </div>
+
+            <div class="slider-row">
+              <div class="slider-label">
+                <label for="tweakOffsetY">Vertical Offset (Y)</label>
+                <output id="tweakOffsetYOut" for="tweakOffsetY">0.00</output>
+              </div>
+              <input type="range" id="tweakOffsetY" min="-0.8" max="0.8" step="0.01" value="0">
+            </div>
+
+            <div class="slider-row">
+              <div class="slider-label">
+                <label for="tweakOffsetZ">Front / Back (Z)</label>
+                <output id="tweakOffsetZOut" for="tweakOffsetZ">0.00</output>
+              </div>
+              <input type="range" id="tweakOffsetZ" min="-0.6" max="0.6" step="0.01" value="0">
+            </div>
+
+            <div class="slider-row">
+              <div class="slider-label">
+                <label for="tweakRotY">Facing Rotation (Y)</label>
+                <output id="tweakRotYOut" for="tweakRotY">0°</output>
+              </div>
+              <input type="range" id="tweakRotY" min="-180" max="180" step="5" value="0">
+            </div>
+
+            <div class="fit-actions">
+              <button type="button" class="btn btn-subtle" id="resetFitBtn">Reset Part</button>
+              <button type="button" class="btn btn-primary" id="saveFitBtn">Save Fit</button>
+            </div>
+          </div>
+        </details>
+
+        <div class="folder-tip">
+          <strong>Add parts any time:</strong> Drop <code>.glb</code> files into <code>Heads/</code>, <code>Bodies/</code>, or <code>Legs/</code> (or click <em>+ Add Part</em>) and every new full character combination appears automatically.
+        </div>
+      </aside>
+    </section>
+
+    <!-- Full Characters Gallery -->
+    <section class="gallery-section" aria-labelledby="galleryHeading">
+      <div class="section-header">
+        <div>
+          <h2 id="galleryHeading">Full Characters Gallery</h2>
+          <p class="muted" id="gallerySubtitle">Every assembled Head + Body + Legs character. Drag directly on any card to rotate 360°, or open it in the 3D Studio.</p>
+        </div>
+
+        <div class="gallery-filters">
+          <select id="filterHead" aria-label="Filter by head">
+            <option value="">All Heads</option>
+          </select>
+          <select id="filterBody" aria-label="Filter by body">
+            <option value="">All Bodies</option>
+          </select>
+          <select id="filterLegs" aria-label="Filter by legs">
+            <option value="">All Legs</option>
+          </select>
+          <label class="checkbox-pill" for="filterFavorites">
+            <input type="checkbox" id="filterFavorites">
+            <span>Favorites only</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="card-grid" id="characterGrid" aria-live="polite"></div>
+
+      <div class="pagination-row" id="paginationRow" hidden>
+        <button type="button" class="btn btn-subtle" id="loadMoreBtn">Show More Characters</button>
+      </div>
+    </section>
+
+    <!-- Individual Parts 3D Gallery -->
+    <section class="parts-section" aria-labelledby="partsHeading">
+      <div class="section-header">
+        <div>
+          <h2 id="partsHeading">Individual Parts Gallery</h2>
+          <p class="muted" id="partsSubtitle">Every standalone 3D part from <code>Heads/</code>, <code>Bodies/</code>, and <code>Legs/</code>. Drag any part card to rotate 360°, inspect it solo, or equip it on your character.</p>
+        </div>
+
+        <div class="parts-toolbar">
+          <div class="part-filter-tabs" role="group" aria-label="Filter individual parts by category">
+            <button type="button" class="btn btn-subtle part-cat-btn" data-part-cat="all" aria-pressed="true">All <span class="tab-count" id="tabCountAll">0</span></button>
+            <button type="button" class="btn btn-subtle part-cat-btn" data-part-cat="heads" aria-pressed="false">Heads <span class="tab-count" id="tabCountHeads">0</span></button>
+            <button type="button" class="btn btn-subtle part-cat-btn" data-part-cat="bodies" aria-pressed="false">Bodies <span class="tab-count" id="tabCountBodies">0</span></button>
+            <button type="button" class="btn btn-subtle part-cat-btn" data-part-cat="legs" aria-pressed="false">Legs <span class="tab-count" id="tabCountLegs">0</span></button>
+          </div>
+          <button type="button" class="btn btn-subtle" id="refreshPartsBtn">Rescan Folders</button>
+        </div>
+      </div>
+
+      <div class="card-grid" id="partsGrid" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <!-- Native Modal Dialog for Adding Parts -->
+  <dialog class="upload-dialog" id="uploadDialog" aria-labelledby="uploadDialogTitle">
+    <form method="dialog" class="dialog-shell" id="uploadForm">
+      <header class="dialog-header">
+        <h2 id="uploadDialogTitle">Add a 3D Character Part</h2>
+        <button type="button" class="icon-close" id="closeUploadBtn" aria-label="Close dialog">&times;</button>
+      </header>
+
+      <div class="dialog-body">
+        <p class="muted">Upload a <code>.glb</code> file to save it directly into the matching folder and assemble new full characters automatically.</p>
+
+        <fieldset class="slot-radio-group">
+          <legend>Choose part category</legend>
+          <label class="radio-card" for="uploadSlotHead">
+            <input type="radio" id="uploadSlotHead" name="uploadSlot" value="heads" checked>
+            <span>Head</span>
+          </label>
+          <label class="radio-card" for="uploadSlotBody">
+            <input type="radio" id="uploadSlotBody" name="uploadSlot" value="bodies">
+            <span>Body</span>
+          </label>
+          <label class="radio-card" for="uploadSlotLegs">
+            <input type="radio" id="uploadSlotLegs" name="uploadSlot" value="legs">
+            <span>Legs</span>
+          </label>
+        </fieldset>
+
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="glbFileInput" accept=".glb" class="file-input">
+          <p class="dropzone-title" id="dropzoneLabel">Drop a <code>.glb</code> file here, or click to browse</p>
+          <p class="muted dropzone-sub" id="dropzoneMeta">Binary glTF (.glb) up to 250 MB</p>
+        </div>
+
+        <div class="upload-progress-wrap" id="uploadProgressWrap" hidden>
+          <progress id="uploadProgress" max="100" value="0">0%</progress>
+          <p class="muted" id="uploadStatusText">Uploading…</p>
+        </div>
+
+        <p class="error-text" id="uploadError" role="alert" hidden></p>
+      </div>
+
+      <footer class="dialog-footer">
+        <button type="button" class="btn btn-subtle" id="cancelUploadBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="submitUploadBtn" disabled>Add to Gallery</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
